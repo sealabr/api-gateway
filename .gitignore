@@ -1,0 +1,81 @@
+### Code ###
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+### Node ###
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.yarn/
+.yarnrc
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage
+*.lcov
+
+# Dependency directories
+node_modules/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.build
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+
+# rollup.js default build output
+dist/
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# User-specific stuff
+.idea/
+*.iml
+
+# IntelliJ
+out/
+
+# Apple shit
+.DS_Store
+
+.localstack
+cdk.out
+
+.nyc_output
+
+.ignore
+cdk.context.json
+
+# Local things
+*.lab.*
+*.todo.*

@@ -25,14 +25,16 @@ npm install
 Copie o arquivo `.env` e ajuste as configurações:
 
 ```bash
-# Exemplo de configuração
+# Configurações essenciais
 PORT=8000
-ADMIN_PORT=8001
 UPSTREAM_URL=http://httpbin.org
 API_KEY=minha-api-key-super-secreta
 ALLOWED_ENDPOINTS=/get,/post,/put,/delete,/status/*,/anything/*
 RATE_LIMIT_WINDOW=15
 RATE_LIMIT_MAX=100
+CORS_ORIGIN=*
+LOG_LEVEL=info
+ADMIN_TOOLS_TOKEN=admin-secret-token
 ```
 
 ### 3. Executar
@@ -305,12 +307,11 @@ curl http://localhost:8001/stats
 
 ## 🔧 Configurações Avançadas
 
-### Variáveis de Ambiente Completas
+### Variáveis de Ambiente
 
 ```env
 # Portas
 PORT=8000
-ADMIN_PORT=8001
 
 # Upstream
 UPSTREAM_URL=http://httpbin.org

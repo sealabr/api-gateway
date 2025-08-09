@@ -66,7 +66,7 @@ async function testRealRequest(origin, apiKey) {
 }
 
 // Função principal
-async function runCORS tests() {
+async function runCORSTests() {
   console.log('🧪 Testes de CORS para API Gateway');
   console.log('='.repeat(60));
   
@@ -91,7 +91,7 @@ async function runCORS tests() {
 
 // Executar testes se chamado diretamente
 if (require.main === module) {
-  runCORS tests().catch(console.error);
+  runCORSTests().catch(console.error);
 }
 
 module.exports = { testCORS, testRealRequest }; 

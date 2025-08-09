@@ -4,7 +4,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+const axios = require('axios');
 require('dotenv').config();
 
 const app = express();
@@ -15,6 +15,11 @@ const csrfTokens = new Map();
 // Função para gerar CSRF token
 const generateCSRFToken = () => {
   return crypto.randomBytes(32).toString('hex');
+};
+
+// Função para formatar IP address
+const formatIP = (ip) => {
+  return ip === '::1' ? 'localhost' : ip;
 };
 
 // Função para limpar tokens CSRF expirados
@@ -144,23 +149,13 @@ setInterval(() => {
 
 // Middleware de logging
 const logger = (req, res, next) => {
-  const start = Date.now();
-  const originalSend = res.send;
-  
-  res.send = function(data) {
-    const duration = Date.now() - start;
-    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - ${res.statusCode} - ${duration}ms - ${req.ip}`);
-    originalSend.call(this, data);
-  };
-  
+  req.startTime = Date.now();
   next();
 };
 
-app.use(logger);
-
 // Rate Limiting Avançado
 const advancedRateLimit = (req, res, next) => {
-  const clientId = req.ip + (req.headers['x-api-key'] || '');
+  const clientId = formatIP(req.ip) + (req.headers['x-api-key'] || '');
   const now = Date.now();
   const windowMs = config.rateLimitWindow * 60 * 1000;
   
@@ -242,9 +237,15 @@ const authorizeEndpoint = (req, res, next) => {
   
   // Verificar se o endpoint é permitido
   const isAllowed = config.allowedEndpoints.some(pattern => {
-    if (pattern.endsWith('/*')) {
-      const basePath = pattern.slice(0, -2);
-      return requestPath.startsWith(basePath);
+    // Se o padrão tem wildcard
+    if (pattern.includes('*')) {
+      // Converter o padrão em regex
+      const regexPattern = pattern
+        .replace(/\*/g, '[^/]+') // * substitui qualquer segmento
+        .replace(/\//g, '\\/'); // Escapar barras
+      
+      const regex = new RegExp(`^${regexPattern}$`);
+      return regex.test(requestPath);
     }
     return requestPath === pattern;
   });
@@ -264,7 +265,7 @@ const transformRequest = (req, res, next) => {
   // Adicionar headers customizados
   req.headers['x-gateway'] = 'nodejs-kong-like';
   req.headers['x-forwarded-by'] = 'api-gateway';
-  req.headers['x-client-ip'] = req.ip;
+  req.headers['x-client-ip'] = formatIP(req.ip);
   
   // Log da transformação
   if (config.logLevel === 'debug') {
@@ -278,11 +279,37 @@ const transformRequest = (req, res, next) => {
   next();
 };
 
+// Middleware para capturar responses de erro
+const errorLogger = (req, res, next) => {
+  const originalSend = res.send;
+  
+  res.send = function(data) {
+    if (res.statusCode >= 400) {
+      console.error('🚨 Error Response:', {
+        method: req.method,
+        path: req.path,
+        originalUrl: req.originalUrl || req.url,
+        upstreamUrl: req.upstreamUrl || 'N/A',
+        statusCode: res.statusCode,
+        headers: req.headers,
+        body: req.body,
+        query: req.query,
+        responseData: data
+      });
+    }
+    originalSend.call(this, data);
+  };
+  
+  next();
+};
+
 // Aplicar middlewares na ordem correta
 app.use(advancedRateLimit);
 app.use(authenticate);
 app.use(authorizeEndpoint);
 app.use(transformRequest);
+app.use(logger); // Adicionar logger para capturar startTime
+app.use(errorLogger); // Adicionar error logger
 app.use(csrfProtection); // Adicionar CSRF protection ANTES do proxy
 
 // Health check
@@ -346,32 +373,114 @@ app.get('/admin/endpoints', (req, res) => {
   });
 });
 
-// Proxy para o upstream
-const proxyOptions = {
-  target: config.upstreamUrl,
-  changeOrigin: true,
-  logLevel: config.logLevel === 'debug' ? 'debug' : 'error',
-  onProxyReq: (proxyReq, req, res) => {
-    // Log do proxy
-    console.log(`🔄 Proxying: ${req.method} ${req.path} → ${config.upstreamUrl}${req.path}`);
-  },
-  onProxyRes: (proxyRes, req, res) => {
-    // Adicionar headers de resposta customizados
-    proxyRes.headers['x-gateway-response'] = 'nodejs-kong-like';
-    proxyRes.headers['x-response-time'] = Date.now() - req.startTime;
-  },
-  onError: (err, req, res) => {
-    console.error('❌ Proxy Error:', err.message);
+// Função para fazer request ao upstream
+const makeUpstreamRequest = async (req, res) => {
+  try {
+    // Construir URL completa corretamente
+    const baseUrl = config.upstreamUrl.endsWith('/') ? config.upstreamUrl.slice(0, -1) : config.upstreamUrl;
+    
+    // Usar originalUrl para pegar o path completo
+    const fullPath = req.originalUrl || req.url;
+    const path = fullPath.startsWith('/') ? fullPath : `/${fullPath}`;
+    const upstreamUrl = `${baseUrl}${path}`;
+    
+    // Adicionar informações ao request para o logger
+    req.upstreamUrl = upstreamUrl;
+    req.originalUrl = fullPath;
+  
+    // Filtrar headers problemáticos que podem causar 400
+    const filteredHeaders = { ...req.headers };
+    
+    // Remover headers que podem causar problemas
+    const headersToRemove = [
+      'host',
+      'connection',
+      'content-length',
+      'transfer-encoding',
+      'x-forwarded-host',
+      'x-forwarded-proto',
+      'x-forwarded-for',
+      'x-real-ip'
+    ];
+    
+    headersToRemove.forEach(header => {
+      delete filteredHeaders[header];
+    });
+    
+    // Configurar axios
+    const axiosConfig = {
+      method: req.method,
+      url: upstreamUrl,
+      headers: filteredHeaders,
+      timeout: 10000,
+      validateStatus: () => true
+    };
+    
+    // Adicionar body para métodos que precisam
+    if (['POST', 'PUT', 'PATCH'].includes(req.method) && req.body) {
+      axiosConfig.data = req.body;
+    }
+    
+    // Adicionar query params
+    if (Object.keys(req.query).length > 0) {
+      axiosConfig.params = req.query;
+    }
+    
+    // Fazer request ao upstream
+    const upstreamResponse = await axios(axiosConfig);
+    
+    // Retornar exatamente a resposta do upstream
+    res.status(upstreamResponse.status);
+    
+    // Copiar todos os headers da resposta do upstream
+    Object.keys(upstreamResponse.headers).forEach(header => {
+      res.set(header, upstreamResponse.headers[header]);
+    });
+
+    // Log da resposta
+    const duration = Date.now() - req.startTime;
+    const originalUrl = req.originalUrl || req.url;
+    const emoji = upstreamResponse.status >= 200 && upstreamResponse.status < 400 ? '✅' : '❌';
+    console.log(`${emoji} ${new Date().toISOString()} - ${originalUrl} -> ${upstreamUrl} ${upstreamResponse.status} - ${duration}ms - ${formatIP(req.ip)}`);
+
+    // Retornar o body exato do upstream
+    res.send(upstreamResponse.data);
+    
+  } catch (error) {
+    console.error('❌ Upstream Request Error:', error.message);
+    console.error('❌ Error Details:', {
+      code: error.code,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      data: error.response?.data,
+      config: {
+        url: error.config?.url,
+        method: error.config?.method,
+        headers: error.config?.headers
+      }
+    });
+    
+    // Se o upstream retornou um erro específico, repassar
+    if (error.response) {
+      res.status(error.response.status);
+      if (error.response.headers) {
+        Object.keys(error.response.headers).forEach(header => {
+          res.set(header, error.response.headers[header]);
+        });
+      }
+      return res.send(error.response.data);
+    }
+    
     res.status(502).json({
       error: 'Bad Gateway',
       message: 'Error connecting to upstream service',
-      upstream: config.upstreamUrl
+      details: error.message
     });
   }
 };
 
-// Aplicar proxy para todas as rotas restantes
-app.use('/', createProxyMiddleware(proxyOptions));
+// Middleware para capturar todas as rotas restantes
+app.use('*', makeUpstreamRequest);
 
 // Error handler global
 app.use((error, req, res, next) => {

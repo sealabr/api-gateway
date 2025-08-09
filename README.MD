@@ -271,11 +271,16 @@ ALLOWED_ENDPOINTS=/get,/post,/put,/delete
 
 # Com wildcards (/* permite sub-rotas)
 ALLOWED_ENDPOINTS=/api/*,/v1/*,/status/*,/health
+
+# Com wildcards no meio da URL
+ALLOWED_ENDPOINTS=/bot/*/tokenByName,/users/*/profile
 ```
 
 ### Exemplos:
 - `/api/*` ✅ permite `/api/users`, `/api/orders`, etc.
 - `/status/*` ✅ permite `/status/200`, `/status/404`, etc.
+- `/bot/*/tokenByName` ✅ permite `/bot/empresa123/tokenByName`, `/bot/empresa456/tokenByName`, etc.
+- `/users/*/profile` ✅ permite `/users/123/profile`, `/users/john/profile`, etc.
 - `/exact-path` ✅ permite apenas `/exact-path`
 
 ## 📊 Monitoramento
@@ -320,7 +325,7 @@ UPSTREAM_URL=http://httpbin.org
 API_KEY=minha-api-key-super-secreta
 
 # Endpoints
-ALLOWED_ENDPOINTS=/get,/post,/put,/delete,/status/*,/anything/*
+ALLOWED_ENDPOINTS=/get,/post,/put,/delete,/status/*,/anything/*,/bot/*/tokenByName
 
 # Rate Limiting
 RATE_LIMIT_WINDOW=15
